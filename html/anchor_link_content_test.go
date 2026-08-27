@@ -5,6 +5,7 @@ package html_test
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -13,11 +14,14 @@ import (
 	"github.com/carlos7ags/folio/html"
 )
 
-// fontFaceFS builds an in-memory FS holding a real TTF under the name the
-// test documents reference from @font-face.
+// fontFaceFS builds an in-memory FS holding the repo's synthetic CJK TTF
+// under the name the test documents reference from @font-face. The fixture
+// covers only CJK codepoints, which is what makes it useful here: a
+// standard PDF-14 face cannot encode them, so a fallback to one is
+// unambiguous rather than a subtle difference in letterforms.
 func fontFaceFS(t *testing.T) fstest.MapFS {
 	t.Helper()
-	ttf, err := os.ReadFile("../font/testdata/NotoSans-Regular.ttf")
+	ttf, err := os.ReadFile("../font/testdata/synthetic_cjk.ttf")
 	if err != nil {
 		t.Fatalf("read fixture font: %v", err)
 	}
@@ -49,6 +53,15 @@ const fontFaceHead = `<html><head><style>
 	body { font-family: 'TestFace', Helvetica, sans-serif; }
 </style></head><body>`
 
+// Every rune below is covered by font/testdata/synthetic_cjk.ttf. All
+// rendered text in these documents is CJK so that any standard-14 fallback
+// shows up as a /BaseFont /Helvetica the fixture could never have produced.
+const (
+	cjkBody = "中华人民"
+	cjkLink = "共和国是"
+	cjkDest = "一个历史"
+)
+
 // TestLinkUsesDocumentFace pins that link text is set in the document's
 // declared @font-face, not a standard PDF-14 substitute. The block-level
 // <a> path built its paragraph from resolveFont, which only ever returns
@@ -59,17 +72,18 @@ func TestLinkUsesDocumentFace(t *testing.T) {
 		name string
 		body string
 	}{
-		{"block anchor", `<a href="#target" style="display:block">jump link</a>`},
-		{"block external anchor", `<a href="https://example.com/" style="display:block">out</a>`},
-		{"inline anchor", `<p>lead <a href="#target">jump link</a> tail</p>`},
+		{"block anchor", `<a href="#target" style="display:block">` + cjkLink + `</a>`},
+		{"block external anchor", `<a href="https://example.com/" style="display:block">` + cjkLink + `</a>`},
+		{"inline anchor", `<p>` + cjkBody + `<a href="#target">` + cjkLink + `</a></p>`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pdf := string(renderWithFontFace(t, fontFaceHead+tc.body+
-				`<h2 id="target">Target</h2></body></html>`))
+			pdf := string(renderWithFontFace(t, fontFaceHead+`<p>`+cjkBody+`</p>`+tc.body+
+				`<div id="target">`+cjkDest+`</div></body></html>`))
 
-			if !strings.Contains(pdf, "NotoSans") {
-				t.Fatal("document does not embed the @font-face at all — fixture is wrong")
+			// A subset-embedded font is written as /BaseFont /ABCDEF+Name.
+			if !regexp.MustCompile(`/FontFile2`).MatchString(pdf) {
+				t.Fatal("document embeds no font program at all — fixture is wrong")
 			}
 			if strings.Contains(pdf, "/BaseFont /Helvetica") {
 				t.Error("link text fell back to non-embedded Helvetica; " +
