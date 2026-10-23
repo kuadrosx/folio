@@ -351,7 +351,7 @@ func (c *converter) blockifyInlineBoxChild(child *html.Node, childStyle computed
 	// Shrink-to-fit so the blockified box sizes to its content (CSS
 	// fit-content) and behaves as an atomic inline box, matching the
 	// display:inline-block path (convertInlineBlockElement).
-	if div, ok := elems[0].(*layout.Div); ok {
+	if div, ok := layout.Unwrap(elems[0]).(*layout.Div); ok {
 		div.SetShrinkToFit(true)
 	}
 	return elems, true
